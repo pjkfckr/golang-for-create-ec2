@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"os"
+	"strings"
 )
 
 func main() {
@@ -63,15 +64,30 @@ func createEC2(ctx context.Context, profile string) (string, error) {
 
 // Create key pair for ec2 instance
 func createKeyPair(name string, ctx context.Context, client *ec2.Client) (string, error) {
-	output, err := client.CreateKeyPair(ctx, &ec2.CreateKeyPairInput{
-		KeyName: aws.String(name),
+	existKeyPairs, err := client.DescribeKeyPairs(ctx, &ec2.DescribeKeyPairsInput{
+		KeyNames: []string{name},
 	})
-
-	if err != nil {
+	// KeyPair can exist
+	if err != nil && !strings.Contains(err.Error(), "InvalidKeyPair.NotFound") {
 		return "", fmt.Errorf("CreateKeyPair error: %s", err)
 	}
 
-	return *output.KeyName, nil
+	if existKeyPairs == nil || len(existKeyPairs.KeyPairs) == 0 {
+		output, err := client.CreateKeyPair(ctx, &ec2.CreateKeyPairInput{
+			KeyName: aws.String(name),
+		})
+
+		if err != nil {
+			return "", fmt.Errorf("CreateKeyPair error: %s", err)
+		}
+		err = os.WriteFile("go-aws-ec2.pem", []byte(*output.KeyMaterial), 0600)
+		if err != nil {
+			return "", fmt.Errorf("WriteFile error: %s", err)
+		}
+		return *output.KeyName, nil
+	}
+
+	return *existKeyPairs.KeyPairs[0].KeyName, nil
 
 }
 
